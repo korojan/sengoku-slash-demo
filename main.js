@@ -1,5 +1,4 @@
-// 戦国スラッシュ 体験版（iOSジェスチャ＋BGM/SE）
-// 操作：ドラッグ＝左右移動／タップ＝ショット／長押し＝連射／フリック左右＝ダッシュ
+// 戦国スラッシュ 体験版（iOSジェスチャ＋BGM/SE mp3対応版）
 (() => {
   const W = 450, H = 600;
   const canvas = document.getElementById('game');
@@ -11,77 +10,56 @@
     score: 0,
     player: { x: W/2, y: H-50, w: 32, h: 14, speed: 220 },
     shots: [], enemies: [], lastSpawn: 0, spawnInterval: 500, lastShot: 0, keys: {},
-    // gesture
     autoFire: false, lastAutoFire: 0, autoFireInterval: 120,
     dashUntil: 0, dashTarget: null, dashSpeed: 900,
-    // audio
     audioReady: false, muted: false, bgm: null, se: null,
   };
 
-  // ===== Audio（iOSで安定する直指定 & 初回操作で解錠）=====
   const muteBtn = document.getElementById('mute');
   let firstUnlockDone = false;
 
   function initAudio(){
-    if (state.audioReady){
-      return;
-    }
-    // 直接パス指定の Audio のほうが iOS で安定
-    state.bgm = new Audio('assets/bgm.mp3');
-    state.bgm.loop = true;
-    state.bgm.volume = 0.35;
-    state.bgm.preload = 'auto';
-
-    // 機械ショット音を優先 → 失敗したら slash.wav に自動フォールバック
-    state.se = new Audio('assets/shot.wav');
-    state.se.volume = 0.8;
-    state.se.preload = 'auto';
+    if (state.audioReady) return;
+    state.bgm = new Audio('assets/bgm.mp3'); state.bgm.loop = true; state.bgm.volume = 0.35; state.bgm.preload = 'auto';
+    state.se = new Audio('assets/shot.mp3'); state.se.volume = 0.8; state.se.preload = 'auto';
     state.se.addEventListener('error', () => {
-      state.se = new Audio('assets/slash.wav');
-      state.se.volume = 0.8;
-      state.se.preload = 'auto';
+      state.se = new Audio('assets/slash.mp3'); state.se.volume = 0.8; state.se.preload = 'auto';
     }, { once: true });
-
     state.audioReady = true;
   }
   async function kickAudio(){
     initAudio();
     if (firstUnlockDone) return;
-    firstUnlockDone = true; // 最初のユーザー操作で一度だけ解錠
-    if (!state.muted && state.bgm){
-      try { await state.bgm.play(); } catch(e) { /* 失敗しても次の操作で再挑戦 */ }
-    }
+    firstUnlockDone = true;
+    if (!state.muted && state.bgm){ try { await state.bgm.play(); } catch(e) {} }
   }
   function playSE(){
     if (state.muted || !state.se) return;
     try { state.se.currentTime = 0; state.se.play(); } catch(e){}
   }
   function updateMuteButton(){ muteBtn.textContent = state.muted ? '♪ OFF' : '♪ ON'; }
-
   muteBtn.addEventListener('click', async (e)=>{
     e.stopPropagation();
     state.muted = !state.muted;
     updateMuteButton();
     initAudio();
     if (state.muted){ state.bgm && state.bgm.pause(); }
-    else { try { await state.bgm.play(); } catch(e) { /* 次のタップで再挑戦 */ } }
+    else { try { await state.bgm.play(); } catch(e){} }
   });
   updateMuteButton();
-
   document.addEventListener('visibilitychange', ()=>{
     if (document.hidden){ state.bgm && state.bgm.pause(); }
     else if (!state.muted && state.bgm){ state.bgm.play().catch(()=>{}); }
   });
 
-  // ===== Keyboard fallback (PC) =====
+  // Keyboard fallback
   window.addEventListener('keydown', e=> state.keys[e.code]=true);
   window.addEventListener('keyup', e=> state.keys[e.code]=false);
 
-  // ===== Touch / Pointer (iOS) =====
+  // Touch / Pointer
   const wrap = document.getElementById('wrap');
   let touchStartX=0, touchStartY=0, touchStartTime=0, lastTouchX=null;
   const TAP_TIME=200, TAP_MOVE=10, HOLD_TIME=350;
-  // フリックは誤爆しにくく（速く＆長めのみダッシュ）
   const FLICK_TIME=150, FLICK_DISTANCE=100, DASH_OFFSET=90;
 
   const pointerToCanvasX = (clientX) => {
@@ -98,12 +76,12 @@
     touchStartX = t.clientX; touchStartY = t.clientY; touchStartTime = performance.now();
     lastTouchX = t.clientX;
     state.player.x = pointerToCanvasX(lastTouchX);
-    kickAudio(); // 初回タップでBGM起動
+    kickAudio();
     clearTimeout(handleStart.holdTimer);
     handleStart.holdTimer = setTimeout(()=> startAutoFire(), HOLD_TIME);
   }
   function handleMove(e){
-    e.preventDefault(); // スクロール抑止
+    e.preventDefault();
     const t = e.changedTouches ? e.changedTouches[0] : e;
     lastTouchX = t.clientX;
     state.player.x = pointerToCanvasX(lastTouchX);
@@ -116,7 +94,6 @@
     const adx = Math.abs(dx);
     const ady = Math.abs(t.clientY - touchStartY);
 
-    // フリック → ダッシュ
     if (dt <= FLICK_TIME && adx >= FLICK_DISTANCE && ady < 60){
       const dir = dx > 0 ? 1 : -1;
       const target = Math.max(20, Math.min(W-20, state.player.x + dir*DASH_OFFSET));
@@ -126,7 +103,6 @@
       lastTouchX = null;
       return;
     }
-    // タップ → 単発ショット
     if (dt <= TAP_TIME && adx < TAP_MOVE && ady < TAP_MOVE){
       shoot(performance.now());
     }
@@ -137,12 +113,10 @@
   wrap.addEventListener('touchstart', handleStart, {passive:false});
   wrap.addEventListener('touchmove', handleMove, {passive:false});
   wrap.addEventListener('touchend', handleEnd, {passive:false});
-  // マウス/ペン
   wrap.addEventListener('pointerdown', (e)=>{ state.player.x = pointerToCanvasX(e.clientX); kickAudio(); });
   wrap.addEventListener('pointermove', (e)=>{ if (e.pressure>0 || e.buttons===1) state.player.x = pointerToCanvasX(e.clientX); });
   wrap.addEventListener('pointerup', ()=>{ stopAutoFire(); });
 
-  // ===== Game core =====
   const scoreEl = document.getElementById('score');
   const timeEl = document.getElementById('time');
 
@@ -155,7 +129,7 @@
     if (t - state.lastShot < 200) return;
     state.lastShot = t;
     state.shots.push({ x: state.player.x, y: state.player.y-10, vy: -360 });
-    playSE(); // 機械的SEを再生
+    playSE();
   }
 
   function update(dt, t){
@@ -169,7 +143,6 @@
       state.spawnInterval = Math.max(220, 500 - state.score*2);
     }
 
-    // ダッシュ移動
     if (state.dashTarget != null){
       const dir = state.dashTarget > state.player.x ? 1 : -1;
       const step = state.dashSpeed * dt * dir;
@@ -180,14 +153,12 @@
       state.player.x = Math.max(20, Math.min(W-20, state.player.x));
     }
 
-    // キーボード（PC）
     let vx = 0;
     if (state.keys['ArrowLeft']) vx -= state.player.speed;
     if (state.keys['ArrowRight']) vx += state.player.speed;
     state.player.x = Math.max(20, Math.min(W-20, state.player.x + vx*dt));
     if (state.keys['Space']) shoot(t);
 
-    // 長押し連射
     if (state.autoFire){
       if (t - state.lastAutoFire > state.autoFireInterval){
         state.lastAutoFire = t;
@@ -196,12 +167,10 @@
       }
     }
 
-    // 弾＆敵
     state.shots.forEach(s => s.y += s.vy*dt);
     state.shots = state.shots.filter(s => s.y > -20);
     state.enemies.forEach(e => { e.y += e.speed*dt; });
 
-    // 当たり判定
     for (let i=state.enemies.length-1;i>=0;i--){
       const e = state.enemies[i];
       if (Math.abs(e.x - state.player.x) < 26 && Math.abs(e.y - state.player.y) < 18){
