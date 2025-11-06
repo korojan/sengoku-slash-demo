@@ -18,53 +18,59 @@
     audioReady: false, muted: false, bgm: null, se: null,
   };
 
-  // ===== Audio =====
-  async function ensureAudio(){
-    if (state.audioReady) return;
-    try{
-      const r1 = await fetch('assets/bgm.mp3');
-      if (r1.ok){
-        const b = await r1.blob();
-        state.bgm = new Audio(URL.createObjectURL(b));
-        state.bgm.loop = true;
-        state.bgm.volume = 0.35;
-      }
-    }catch(e){}
-    try{
-      const r2 = await fetch('assets/slash.wav');
-      if (r2.ok){
-        const b = await r2.blob();
-        state.se = new Audio(URL.createObjectURL(b));
-        state.se.volume = 0.8;
-      }
-    }catch(e){}
+  // ===== Audio（iOSで安定する直指定 & 初回操作で解錠）=====
+  const muteBtn = document.getElementById('mute');
+  let firstUnlockDone = false;
+
+  function initAudio(){
+    if (state.audioReady){
+      return;
+    }
+    // 直接パス指定の Audio のほうが iOS で安定
+    state.bgm = new Audio('assets/bgm.mp3');
+    state.bgm.loop = true;
+    state.bgm.volume = 0.35;
+    state.bgm.preload = 'auto';
+
+    // 機械ショット音を優先 → 失敗したら slash.wav に自動フォールバック
+    state.se = new Audio('assets/shot.wav');
+    state.se.volume = 0.8;
+    state.se.preload = 'auto';
+    state.se.addEventListener('error', () => {
+      state.se = new Audio('assets/slash.wav');
+      state.se.volume = 0.8;
+      state.se.preload = 'auto';
+    }, { once: true });
+
     state.audioReady = true;
   }
   async function kickAudio(){
-    await ensureAudio();
+    initAudio();
+    if (firstUnlockDone) return;
+    firstUnlockDone = true; // 最初のユーザー操作で一度だけ解錠
     if (!state.muted && state.bgm){
-      try{ await state.bgm.play(); }catch(e){}
+      try { await state.bgm.play(); } catch(e) { /* 失敗しても次の操作で再挑戦 */ }
     }
   }
   function playSE(){
     if (state.muted || !state.se) return;
-    try{ state.se.currentTime = 0; state.se.play(); }catch(e){}
+    try { state.se.currentTime = 0; state.se.play(); } catch(e){}
   }
-
-  const muteBtn = document.getElementById('mute');
   function updateMuteButton(){ muteBtn.textContent = state.muted ? '♪ OFF' : '♪ ON'; }
+
   muteBtn.addEventListener('click', async (e)=>{
     e.stopPropagation();
     state.muted = !state.muted;
     updateMuteButton();
-    await ensureAudio();
-    if (state.muted){ if (state.bgm) state.bgm.pause(); }
-    else { if (state.bgm) { try{ await state.bgm.play(); }catch(e){} } }
+    initAudio();
+    if (state.muted){ state.bgm && state.bgm.pause(); }
+    else { try { await state.bgm.play(); } catch(e) { /* 次のタップで再挑戦 */ } }
   });
   updateMuteButton();
+
   document.addEventListener('visibilitychange', ()=>{
-    if (document.hidden){ if (state.bgm) state.bgm.pause(); }
-    else { if (!state.muted && state.bgm) state.bgm.play().catch(()=>{}); }
+    if (document.hidden){ state.bgm && state.bgm.pause(); }
+    else if (!state.muted && state.bgm){ state.bgm.play().catch(()=>{}); }
   });
 
   // ===== Keyboard fallback (PC) =====
@@ -75,7 +81,7 @@
   const wrap = document.getElementById('wrap');
   let touchStartX=0, touchStartY=0, touchStartTime=0, lastTouchX=null;
   const TAP_TIME=200, TAP_MOVE=10, HOLD_TIME=350;
-  // フリックを“弱め”に：素早く＆長いスライドのみダッシュ
+  // フリックは誤爆しにくく（速く＆長めのみダッシュ）
   const FLICK_TIME=150, FLICK_DISTANCE=100, DASH_OFFSET=90;
 
   const pointerToCanvasX = (clientX) => {
@@ -149,7 +155,7 @@
     if (t - state.lastShot < 200) return;
     state.lastShot = t;
     state.shots.push({ x: state.player.x, y: state.player.y-10, vy: -360 });
-    playSE();
+    playSE(); // 機械的SEを再生
   }
 
   function update(dt, t){
